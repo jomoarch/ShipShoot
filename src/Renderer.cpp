@@ -1,4 +1,4 @@
-#include "renderer.h"
+#include "Renderer.h"
 #include <iostream>
 #include <vector>
 #include <cmath>

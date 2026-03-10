@@ -2,11 +2,6 @@
 #include <glad/glad.h>
 #include <vector>
 
-struct Vec2 {
-  float x;
-  float y;
-};
-
 class Renderer {
 public:
   Renderer();

@@ -2,25 +2,22 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <vector>
-#include <cmath>
 #include <algorithm>
-#include "renderer.h"
+#include "Renderer.h"
+#include "Math.h"
 
 const unsigned int SCR_WIDTH = 400;
 const unsigned int SCR_HEIGHT = 300;
 
-// callback needed only to update viewport
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
   glViewport(0, 0, width, height);
 }
 
-// global state for callbacks
 static bool cursorIn = true;
 static float viewAngle = 0.0f;
 
-// camera for smoothing
-static Vec2 camPos = {SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f};
-static Vec2 camVel = {0.0f, 0.0f};
+static Vec2 camPos(SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f);
+static Vec2 camVel(0.0f, 0.0f);
 static const float camAccel = 200.0f;
 static const float camDamp = 4.0f;
 
@@ -30,13 +27,12 @@ void cursor_enter_cb(GLFWwindow *w, int entered) {
                    entered ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
 }
 
-void scroll_cb(GLFWwindow *w, double xoff, double yoff) {
-  // zoom removed - no action
-}
+void scroll_cb(GLFWwindow *w, double xoff, double yoff) {}
 
 struct Player {
   Vec2 pos;
   float angle;
+  Player(float x, float y) : pos(x, y), angle(0) {}
 };
 struct Bullet {
   Vec2 pos, vel;
@@ -55,13 +51,11 @@ struct Enemy {
   int hits;
 };
 
-// game state
 static std::vector<Enemy> enemies;
 static float spawnTimer = 0.0f;
 static bool gameOver = false;
 
-// player heat
-static int heatCount = 0; // 0..30
+static int heatCount = 0;
 
 int main() {
   if (!glfwInit()) {
@@ -99,7 +93,7 @@ int main() {
   renderer.setProjection((float)SCR_WIDTH, (float)SCR_HEIGHT);
   glPointSize(1.0f);
 
-  Player player{{SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f}, 0.0f};
+  Player player(SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f);
   std::vector<Bullet> bullets;
   std::vector<Spark> sparks;
 
@@ -110,7 +104,6 @@ int main() {
     float now = glfwGetTime();
     float dt = now - lastTime;
     lastTime = now;
-    // input
     bool up = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
               glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS;
     bool down = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
@@ -119,7 +112,6 @@ int main() {
                 glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS;
     bool right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ||
                  glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
-    // escape quits
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
       glfwSetWindowShouldClose(window, true);
     }
@@ -127,24 +119,21 @@ int main() {
     glfwGetCursorPos(window, &mouseX, &mouseY);
     int winW, winH;
     glfwGetWindowSize(window, &winW, &winH);
-    // map raw cursor into logical screen coords
     float lx = (float)mouseX * ((float)SCR_WIDTH / winW);
     float ly = (float)mouseY * ((float)SCR_HEIGHT / winH);
-    // convert origin and compute world position by inverting camera transform
     float sx = lx - SCR_WIDTH / 2.0f;
     float sy = (SCR_HEIGHT - ly) - SCR_HEIGHT / 2.0f;
-    // inverse rotation
     float ca = cos(-viewAngle), sa = sin(-viewAngle);
     float wx = sx * ca - sy * sa;
     float wy = sx * sa + sy * ca;
-    Vec2 mpos{wx + camPos.x, wy + camPos.y};
+    Vec2 mpos(wx + camPos.x, wy + camPos.y);
     if (cursorIn) {
-      float dx = mpos.x - player.pos.x;
-      float dy = mpos.y - player.pos.y;
+      int dx = mpos.x - player.pos.x;
+      int dy = mpos.y - player.pos.y;
       player.angle = atan2(dy, dx);
     }
     float speed = 80.0f;
-    Vec2 move{0, 0};
+    Vec2 move(0, 0);
     if (up)
       move.y += 1;
     if (down)
@@ -155,32 +144,27 @@ int main() {
       move.x += 1;
     if (move.x != 0 || move.y != 0) {
       float len = std::sqrt(move.x * move.x + move.y * move.y);
-      move.x /= len;
-      move.y /= len;
-      player.pos.x += move.x * speed * dt;
-      player.pos.y += move.y * speed * dt;
+      move /= len;
+      player.pos += move * speed * dt;
     }
     bool rightBtn =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     if (rightBtn) {
-      Vec2 dir{mpos.x - player.pos.x, mpos.y - player.pos.y};
+      Vec2 dir(mpos - player.pos);
       float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
       if (len > 0.001f) {
-        dir.x /= len;
-        dir.y /= len;
-        player.pos.x += dir.x * speed * dt;
-        player.pos.y += dir.y * speed * dt;
+        dir /= len;
+        player.pos += dir * speed * dt;
       }
     }
     bool leftBtn =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     if (leftBtn) {
       if (heatCount < 20) {
-        Vec2 dir{mpos.x - player.pos.x, mpos.y - player.pos.y};
+        Vec2 dir(mpos - player.pos);
         float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
         if (len > 0.001f) {
-          dir.x /= len;
-          dir.y /= len;
+          dir /= len;
           Bullet b;
           b.pos = player.pos;
           b.vel = Vec2{dir.x * 200.0f, dir.y * 200.0f};
@@ -193,9 +177,8 @@ int main() {
         }
       }
     } else {
-      // cool down
       if (heatCount > 0)
-        heatCount -= (int)(80.0f * dt); // recover 80 per second
+        heatCount -= (int)(80.0f * dt);
       if (heatCount < 0)
         heatCount = 0;
     }
@@ -203,15 +186,13 @@ int main() {
       it->trail.push_back(it->pos);
       if (it->trail.size() > 5)
         it->trail.erase(it->trail.begin());
-      it->pos.x += it->vel.x * dt;
-      it->pos.y += it->vel.y * dt;
+      it->pos += it->vel * dt;
       it->life -= dt;
       bool remove = false;
-      // check collisions with enemies
       for (auto &e : enemies) {
         float dx = it->pos.x - e.pos.x;
         float dy = it->pos.y - e.pos.y;
-        if (dx * dx + dy * dy < 8.0f * 8.0f) {
+        if (dx * dx + dy * dy < 64.0f) {
           e.hits++;
           float whiteness = (float)e.hits / 20.0f;
           Spark s;
@@ -229,7 +210,6 @@ int main() {
             se.g = 1;
             se.b = 1;
             sparks.push_back(se);
-            // mark enemy for removal by high positive x
             e.pos.x = 1e6;
           }
           remove = true;
@@ -242,6 +222,9 @@ int main() {
         Spark s;
         s.pos = it->pos;
         s.life = 0.3f;
+        s.r = 1.0f;
+        s.g = 0.7f;
+        s.b = 0.0f;
         sparks.push_back(s);
         it = bullets.erase(it);
       } else
@@ -255,24 +238,18 @@ int main() {
         ++it;
     }
 
-    // update enemies: move toward player, check collisions, health from bullet
-    // hits
     for (auto eit = enemies.begin(); eit != enemies.end();) {
       Enemy &e = *eit;
-      Vec2 diff{player.pos.x - e.pos.x, player.pos.y - e.pos.y};
+      Vec2 diff(player.pos - e.pos);
       float len = std::sqrt(diff.x * diff.x + diff.y * diff.y);
       if (len > 0.001f) {
-        diff.x /= len;
-        diff.y /= len;
+        diff /= len;
         float speed = 80.0f * 1.5f;
-        e.pos.x += diff.x * speed * dt;
-        e.pos.y += diff.y * speed * dt;
+        e.pos += diff * speed * dt;
       }
-      // collision with player
       float pdx = e.pos.x - player.pos.x;
       float pdy = e.pos.y - player.pos.y;
       if (pdx * pdx + pdy * pdy < 10.0f * 10.0f) {
-        // explosion
         Spark s;
         s.pos = e.pos;
         s.life = 0.5f;
@@ -288,7 +265,6 @@ int main() {
     if (gameOver)
       break;
 
-    // spawn enemies around the current camera view
     spawnTimer += dt;
     if (spawnTimer >= 2.0f) {
       spawnTimer = 0.0f;
@@ -297,25 +273,20 @@ int main() {
       ne.hits = 0;
       float px, py;
       float offset = 20.0f;
-      // world-space screen bounds
       float left = camPos.x - SCR_WIDTH / 2.0f;
       float right = camPos.x + SCR_WIDTH / 2.0f;
       float bottom = camPos.y - SCR_HEIGHT / 2.0f;
       float top = camPos.y + SCR_HEIGHT / 2.0f;
       if (edge == 0) {
-        // left edge
         px = left - offset;
         py = bottom + (float)(rand() % SCR_HEIGHT);
       } else if (edge == 1) {
-        // right edge
         px = right + offset;
         py = bottom + (float)(rand() % SCR_HEIGHT);
       } else if (edge == 2) {
-        // bottom edge
         py = bottom - offset;
         px = left + (float)(rand() % SCR_WIDTH);
       } else {
-        // top edge
         py = top + offset;
         px = left + (float)(rand() % SCR_WIDTH);
       }
@@ -325,17 +296,12 @@ int main() {
 
     glClearColor(0, 0, 0, 1);
     renderer.clear();
-    // update camera towards player
     {
-      Vec2 diff{player.pos.x - camPos.x, player.pos.y - camPos.y};
-      Vec2 acc{diff.x * camAccel, diff.y * camAccel};
-      camVel.x += acc.x * dt;
-      camVel.y += acc.y * dt;
-      // damping
-      camVel.x *= exp(-camDamp * dt);
-      camVel.y *= exp(-camDamp * dt);
-      camPos.x += camVel.x * dt;
-      camPos.y += camVel.y * dt;
+      Vec2 diff(player.pos - camPos);
+      Vec2 acc(diff * camAccel);
+      camVel += acc * dt;
+      camVel *= exp(-camDamp * dt);
+      camPos += camVel * dt;
     }
     auto transform = [&](Vec2 p) -> Vec2 {
       float cx = SCR_WIDTH / 2.0f, cy = SCR_HEIGHT / 2.0f;
@@ -354,7 +320,6 @@ int main() {
       Vec2 p = transform(s.pos);
       renderer.drawCircle(p.x, p.y, 2.0f, r, g, b, false);
     }
-    // draw enemies
     for (auto &e : enemies) {
       float whiteness = (float)e.hits / 20.0f;
       float er = 1.0f;
@@ -362,17 +327,17 @@ int main() {
       float eb = whiteness;
       float esz = 10.0f;
       float ang = atan2(player.pos.y - e.pos.y, player.pos.x - e.pos.x);
-      Vec2 etip{e.pos.x + static_cast<float>(cos(ang)) * esz,
-                e.pos.y + static_cast<float>(sin(ang)) * esz};
+      Vec2 etip(e.pos.x + static_cast<float>(cos(ang)) * esz,
+                e.pos.y + static_cast<float>(sin(ang)) * esz);
       float baseAng = ang + M_PI - (120.0f * M_PI / 180.0f) / 2.0f;
-      Vec2 eleft{e.pos.x + static_cast<float>(cos(baseAng)) * esz * 0.5f,
-                 e.pos.y + static_cast<float>(sin(baseAng)) * esz * 0.5f};
-      Vec2 eright{e.pos.x + static_cast<float>(
+      Vec2 eleft(e.pos.x + static_cast<float>(cos(baseAng)) * esz * 0.5f,
+                 e.pos.y + static_cast<float>(sin(baseAng)) * esz * 0.5f);
+      Vec2 eright(e.pos.x + static_cast<float>(
                                 cos(baseAng + (120.0f * M_PI / 180.0f))) *
                                 esz * 0.5f,
                   e.pos.y + static_cast<float>(
                                 sin(baseAng + (120.0f * M_PI / 180.0f))) *
-                                esz * 0.5f};
+                                esz * 0.5f);
       Vec2 etp = transform(etip), elp = transform(eleft),
            erp = transform(eright);
       renderer.drawTriangle(etp.x, etp.y, elp.x, elp.y, erp.x, erp.y, er, eg,
@@ -390,27 +355,24 @@ int main() {
       renderer.drawPixel(p.x, p.y, 1.0f, 0.5f, 0.0f);
     }
     float size = 8.0f;
-    Vec2 tip{player.pos.x + static_cast<float>(cos(player.angle)) * size,
-             player.pos.y + static_cast<float>(sin(player.angle)) * size};
+    Vec2 tip(player.pos.x + static_cast<float>(cos(player.angle)) * size,
+             player.pos.y + static_cast<float>(sin(player.angle)) * size);
     float baseAngle = player.angle + M_PI - (30.0f * M_PI / 180.0f) / 2.0f;
-    Vec2 leftp{player.pos.x + static_cast<float>(cos(baseAngle)) * size * 0.5f,
-               player.pos.y + static_cast<float>(sin(baseAngle)) * size * 0.5f};
-    Vec2 rightp{player.pos.x + static_cast<float>(
+    Vec2 leftp(player.pos.x + static_cast<float>(cos(baseAngle)) * size * 0.5f,
+               player.pos.y + static_cast<float>(sin(baseAngle)) * size * 0.5f);
+    Vec2 rightp(player.pos.x + static_cast<float>(
                                    cos(baseAngle + (30.0f * M_PI / 180.0f))) *
                                    size * 0.5f,
                 player.pos.y + static_cast<float>(
                                    sin(baseAngle + (30.0f * M_PI / 180.0f))) *
-                                   size * 0.5f};
+                                   size * 0.5f);
     Vec2 tp = transform(tip), lp = transform(leftp), rp = transform(rightp);
-    // player color based on heat: green -> yellow -> red
     float heatRatio = (float)heatCount / 20.0f;
     float pr, pg;
     if (heatRatio < 0.8f) {
-      // green to yellow
       pr = heatRatio / 0.8f;
       pg = 1.0f;
     } else {
-      // yellow to red
       pr = 1.0f;
       pg = 1.0f - (heatRatio - 0.8f) / 0.2f;
       if (pg < 0.0f)
