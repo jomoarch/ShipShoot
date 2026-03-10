@@ -6,21 +6,26 @@
 #include "Renderer.h"
 #include "Math.h"
 
+// 默认窗口大小
 const unsigned int SCR_WIDTH = 400;
 const unsigned int SCR_HEIGHT = 300;
 
+// 自动调整窗口
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
   glViewport(0, 0, width, height);
 }
 
+// 鼠标进入窗口回调
 static bool cursorIn = true;
 static float viewAngle = 0.0f;
 
+// 摄像机状态
 static Vec2 camPos(SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f);
 static Vec2 camVel(0.0f, 0.0f);
 static const float camAccel = 200.0f;
 static const float camDamp = 4.0f;
 
+// 鼠标进入/离开窗口时隐藏/显示光标
 void cursor_enter_cb(GLFWwindow *w, int entered) {
   cursorIn = entered;
   glfwSetInputMode(w, GLFW_CURSOR,
@@ -29,32 +34,36 @@ void cursor_enter_cb(GLFWwindow *w, int entered) {
 
 void scroll_cb(GLFWwindow *w, double xoff, double yoff) {}
 
+// 玩家
 struct Player {
   Vec2 pos;
   float angle;
   Player(float x, float y) : pos(x, y), angle(0) {}
 };
+// 子弹
 struct Bullet {
   Vec2 pos, vel;
   float life;
   std::vector<Vec2> trail;
 };
+// 火花
 struct Spark {
   Vec2 pos;
   float life;
   float r, g, b;
 };
-
+// 敌人
 struct Enemy {
   Vec2 pos;
   Vec2 vel;
   int hits;
 };
 
+// 游戏状态
 static std::vector<Enemy> enemies;
 static float spawnTimer = 0.0f;
 static bool gameOver = false;
-
+// 过热计数器，当heatCount达到20时玩家无法射击，放开鼠标左键后heatCount会以每秒80的速度下降
 static int heatCount = 0;
 
 int main() {
@@ -100,6 +109,7 @@ int main() {
   double mouseX = 0, mouseY = 0;
 
   float lastTime = glfwGetTime();
+  // 主循环
   while (!glfwWindowShouldClose(window)) {
     float now = glfwGetTime();
     float dt = now - lastTime;
@@ -116,6 +126,7 @@ int main() {
       glfwSetWindowShouldClose(window, true);
     }
 
+    // 处理偏移坐标下的鼠标位置
     glfwGetCursorPos(window, &mouseX, &mouseY);
     int winW, winH;
     glfwGetWindowSize(window, &winW, &winH);
@@ -127,11 +138,14 @@ int main() {
     float wx = sx * ca - sy * sa;
     float wy = sx * sa + sy * ca;
     Vec2 mpos(wx + camPos.x, wy + camPos.y);
+
+    // 调整玩家朝向鼠标
     if (cursorIn) {
       int dx = mpos.x - player.pos.x;
       int dy = mpos.y - player.pos.y;
       player.angle = atan2(dy, dx);
     }
+    // 玩家键盘移动
     float speed = 80.0f;
     Vec2 move(0, 0);
     if (up)
@@ -147,6 +161,7 @@ int main() {
       move /= len;
       player.pos += move * speed * dt;
     }
+    // 玩家鼠标移动加速
     bool rightBtn =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     if (rightBtn) {
@@ -157,6 +172,8 @@ int main() {
         player.pos += dir * speed * dt;
       }
     }
+
+    // 玩家射击逻辑和过热机制
     bool leftBtn =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     if (leftBtn) {
@@ -182,6 +199,8 @@ int main() {
       if (heatCount < 0)
         heatCount = 0;
     }
+
+    // 更新子弹位置，处理碰撞和过期
     for (auto it = bullets.begin(); it != bullets.end();) {
       it->trail.push_back(it->pos);
       if (it->trail.size() > 5)
@@ -189,10 +208,12 @@ int main() {
       it->pos += it->vel * dt;
       it->life -= dt;
       bool remove = false;
+      // 检测子弹与敌人的碰撞
       for (auto &e : enemies) {
         float dx = it->pos.x - e.pos.x;
         float dy = it->pos.y - e.pos.y;
         if (dx * dx + dy * dy < 64.0f) {
+          // 后面可以考虑改为扣血机制方便不同种敌机的血量处理
           e.hits++;
           float whiteness = (float)e.hits / 20.0f;
           Spark s;
@@ -230,6 +251,8 @@ int main() {
       } else
         ++it;
     }
+
+    // 更新火花状态，移除过期的火花
     for (auto it = sparks.begin(); it != sparks.end();) {
       it->life -= dt;
       if (it->life <= 0)
@@ -238,6 +261,7 @@ int main() {
         ++it;
     }
 
+    // 更新敌人位置，处理与玩家的碰撞
     for (auto eit = enemies.begin(); eit != enemies.end();) {
       Enemy &e = *eit;
       Vec2 diff(player.pos - e.pos);
@@ -249,7 +273,7 @@ int main() {
       }
       float pdx = e.pos.x - player.pos.x;
       float pdy = e.pos.y - player.pos.y;
-      if (pdx * pdx + pdy * pdy < 10.0f * 10.0f) {
+      if (pdx * pdx + pdy * pdy < 100.0f) {
         Spark s;
         s.pos = e.pos;
         s.life = 0.5f;
@@ -265,6 +289,7 @@ int main() {
     if (gameOver)
       break;
 
+    // 刷新敌人，随机从四边生成敌人
     spawnTimer += dt;
     if (spawnTimer >= 2.0f) {
       spawnTimer = 0.0f;
@@ -294,6 +319,7 @@ int main() {
       enemies.push_back(ne);
     }
 
+    // 渲染和摄像机控制
     glClearColor(0, 0, 0, 1);
     renderer.clear();
     {
@@ -312,6 +338,8 @@ int main() {
       float ry = x * sa + y * ca;
       return Vec2{rx + cx, ry + cy};
     };
+    // 下面是绘图逻辑，没有问题，不需要看
+    // 圆形火花
     for (auto &s : sparks) {
       float t = s.life / 0.3f;
       float r = s.r;
@@ -320,6 +348,7 @@ int main() {
       Vec2 p = transform(s.pos);
       renderer.drawCircle(p.x, p.y, 2.0f, r, g, b, false);
     }
+    // 顶角为120度的红色敌机
     for (auto &e : enemies) {
       float whiteness = (float)e.hits / 20.0f;
       float er = 1.0f;
@@ -343,6 +372,7 @@ int main() {
       renderer.drawTriangle(etp.x, etp.y, elp.x, elp.y, erp.x, erp.y, er, eg,
                             eb);
     }
+    // 绿机子弹
     for (auto &b : bullets) {
       int idx = 0;
       for (auto &tp : b.trail) {
@@ -354,6 +384,7 @@ int main() {
       Vec2 p = transform(b.pos);
       renderer.drawPixel(p.x, p.y, 1.0f, 0.5f, 0.0f);
     }
+    // 玩家绿机
     float size = 8.0f;
     Vec2 tip(player.pos.x + static_cast<float>(cos(player.angle)) * size,
              player.pos.y + static_cast<float>(sin(player.angle)) * size);
@@ -379,6 +410,8 @@ int main() {
         pg = 0.0f;
     }
     renderer.drawTriangle(tp.x, tp.y, lp.x, lp.y, rp.x, rp.y, pr, pg, 0.5f);
+
+    // 鼠标位置指示
     if (cursorIn) {
       Vec2 mc = transform(mpos);
       renderer.drawCircle(mc.x, mc.y, 3.0f, 1, 1, 1, true);
