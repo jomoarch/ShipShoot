@@ -38,4 +38,6 @@ struct Vec2 {
     y /= scalar;
     return *this;
   }
+  float lengthSq() const { return x * x + y * y; }
+  float length() const { return std::sqrt(lengthSq()); }
 };

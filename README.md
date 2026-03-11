@@ -30,7 +30,7 @@ make
 
 依赖项：
 
-- 支持 C++11 的编译器（gcc/clang）
+- 支持 C++14 的编译器（gcc/clang）
 - GLFW 开发头文件
 - OpenGL 3.3 或更高版本
 

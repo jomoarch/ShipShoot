@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "Renderer.h"
 #include "Math.h"
+#include "Enemy.h"
 
 // 默认窗口大小
 const unsigned int SCR_WIDTH = 400;
@@ -52,19 +53,39 @@ struct Spark {
   float life;
   float r, g, b;
 };
-// 敌人
-struct Enemy {
-  Vec2 pos;
-  Vec2 vel;
-  int hits;
-};
 
 // 游戏状态
-static std::vector<Enemy> enemies;
+static std::vector<std::unique_ptr<Enemy>> enemies;
 static float spawnTimer = 0.0f;
 static bool gameOver = false;
-// 过热计数器，当heatCount达到20时玩家无法射击，放开鼠标左键后heatCount会以每秒80的速度下降
+// 过热计数器
+const int maxHeat = 20;
 static int heatCount = 0;
+
+// 随机边框位置选取器
+Vec2 getRandomSpawnPosition() {
+  int edge = rand() % 4;
+  float px, py;
+  float offset = 20.0f;
+  float left = camPos.x - SCR_WIDTH / 2.0f;
+  float right = camPos.x + SCR_WIDTH / 2.0f;
+  float bottom = camPos.y - SCR_HEIGHT / 2.0f;
+  float top = camPos.y + SCR_HEIGHT / 2.0f;
+  if (edge == 0) {
+    px = left - offset;
+    py = bottom + (float)(rand() % SCR_HEIGHT);
+  } else if (edge == 1) {
+    px = right + offset;
+    py = bottom + (float)(rand() % SCR_HEIGHT);
+  } else if (edge == 2) {
+    py = bottom - offset;
+    px = left + (float)(rand() % SCR_WIDTH);
+  } else {
+    py = top + offset;
+    px = left + (float)(rand() % SCR_WIDTH);
+  }
+  return Vec2{px, py};
+}
 
 int main() {
   if (!glfwInit()) {
@@ -157,7 +178,7 @@ int main() {
     if (right)
       move.x += 1;
     if (move.x != 0 || move.y != 0) {
-      float len = std::sqrt(move.x * move.x + move.y * move.y);
+      float len = move.length();
       move /= len;
       player.pos += move * speed * dt;
     }
@@ -166,7 +187,7 @@ int main() {
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     if (rightBtn) {
       Vec2 dir(mpos - player.pos);
-      float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+      float len = dir.length();
       if (len > 0.001f) {
         dir /= len;
         player.pos += dir * speed * dt;
@@ -177,9 +198,9 @@ int main() {
     bool leftBtn =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     if (leftBtn) {
-      if (heatCount < 20) {
+      if (heatCount < maxHeat) {
         Vec2 dir(mpos - player.pos);
-        float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        float len = dir.length();
         if (len > 0.001f) {
           dir /= len;
           Bullet b;
@@ -189,8 +210,8 @@ int main() {
           b.trail.clear();
           bullets.push_back(b);
           heatCount++;
-          if (heatCount > 20)
-            heatCount = 20;
+          if (heatCount > maxHeat)
+            heatCount = maxHeat;
         }
       }
     } else {
@@ -210,12 +231,11 @@ int main() {
       bool remove = false;
       // 检测子弹与敌人的碰撞
       for (auto &e : enemies) {
-        float dx = it->pos.x - e.pos.x;
-        float dy = it->pos.y - e.pos.y;
+        float dx = it->pos.x - e->getPosition().x;
+        float dy = it->pos.y - e->getPosition().y;
         if (dx * dx + dy * dy < 64.0f) {
-          // 后面可以考虑改为扣血机制方便不同种敌机的血量处理
-          e.hits++;
-          float whiteness = (float)e.hits / 20.0f;
+          e->takeDamage(1);
+          float whiteness = 1.0f - (float)e->getLife() / e->getMaxLife();
           Spark s;
           s.pos = it->pos;
           s.life = 0.2f;
@@ -223,15 +243,14 @@ int main() {
           s.g = 1.0f - whiteness;
           s.b = 1.0f - whiteness;
           sparks.push_back(s);
-          if (e.hits >= 20) {
+          if (e->isDead()) {
             Spark se;
-            se.pos = e.pos;
+            se.pos = e->getPosition();
             se.life = 0.5f;
             se.r = 1;
             se.g = 1;
             se.b = 1;
             sparks.push_back(se);
-            e.pos.x = 1e6;
           }
           remove = true;
           break;
@@ -262,62 +281,27 @@ int main() {
     }
 
     // 更新敌人位置，处理与玩家的碰撞
-    for (auto eit = enemies.begin(); eit != enemies.end();) {
-      Enemy &e = *eit;
-      Vec2 diff(player.pos - e.pos);
-      float len = std::sqrt(diff.x * diff.x + diff.y * diff.y);
-      if (len > 0.001f) {
-        diff /= len;
-        float speed = 80.0f * 1.5f;
-        e.pos += diff * speed * dt;
-      }
-      float pdx = e.pos.x - player.pos.x;
-      float pdy = e.pos.y - player.pos.y;
-      if (pdx * pdx + pdy * pdy < 100.0f) {
-        Spark s;
-        s.pos = e.pos;
-        s.life = 0.5f;
-        s.r = 1;
-        s.g = 1;
-        s.b = 1;
-        sparks.push_back(s);
+    for (auto &eit : enemies) {
+      eit->update(dt, player.pos);
+    }
+    for (auto &eit : enemies) {
+      const Vec2 &ep = eit->getPosition();
+      if ((ep - player.pos).lengthSq() < 100.0f) {
         gameOver = true;
         break;
       }
-      ++eit;
     }
     if (gameOver)
       break;
 
-    // 刷新敌人，随机从四边生成敌人
+    // 刷新敌人，随机从四边生成普通敌人
     spawnTimer += dt;
     if (spawnTimer >= 2.0f) {
       spawnTimer = 0.0f;
-      int edge = rand() % 4;
-      Enemy ne;
-      ne.hits = 0;
-      float px, py;
-      float offset = 20.0f;
-      float left = camPos.x - SCR_WIDTH / 2.0f;
-      float right = camPos.x + SCR_WIDTH / 2.0f;
-      float bottom = camPos.y - SCR_HEIGHT / 2.0f;
-      float top = camPos.y + SCR_HEIGHT / 2.0f;
-      if (edge == 0) {
-        px = left - offset;
-        py = bottom + (float)(rand() % SCR_HEIGHT);
-      } else if (edge == 1) {
-        px = right + offset;
-        py = bottom + (float)(rand() % SCR_HEIGHT);
-      } else if (edge == 2) {
-        py = bottom - offset;
-        px = left + (float)(rand() % SCR_WIDTH);
-      } else {
-        py = top + offset;
-        px = left + (float)(rand() % SCR_WIDTH);
-      }
-      ne.pos = Vec2{px, py};
-      enemies.push_back(ne);
+      enemies.push_back(
+          std::make_unique<BasicEnemy>(getRandomSpawnPosition(), 20));
     }
+    Enemy::removeDeadEnemies(enemies);
 
     // 渲染和摄像机控制
     glClearColor(0, 0, 0, 1);
@@ -349,24 +333,28 @@ int main() {
       renderer.drawCircle(p.x, p.y, 2.0f, r, g, b, false);
     }
     // 顶角为120度的红色敌机
-    for (auto &e : enemies) {
-      float whiteness = (float)e.hits / 20.0f;
+    for (auto &eit : enemies) {
+      Enemy &e = *eit;
+      float whiteness = e.getColorRatio();
       float er = 1.0f;
       float eg = whiteness;
       float eb = whiteness;
       float esz = 10.0f;
-      float ang = atan2(player.pos.y - e.pos.y, player.pos.x - e.pos.x);
-      Vec2 etip(e.pos.x + static_cast<float>(cos(ang)) * esz,
-                e.pos.y + static_cast<float>(sin(ang)) * esz);
+      float ang = atan2(player.pos.y - e.getPosition().y,
+                        player.pos.x - e.getPosition().x);
+      Vec2 etip(e.getPosition().x + static_cast<float>(cos(ang)) * esz,
+                e.getPosition().y + static_cast<float>(sin(ang)) * esz);
       float baseAng = ang + M_PI - (120.0f * M_PI / 180.0f) / 2.0f;
-      Vec2 eleft(e.pos.x + static_cast<float>(cos(baseAng)) * esz * 0.5f,
-                 e.pos.y + static_cast<float>(sin(baseAng)) * esz * 0.5f);
-      Vec2 eright(e.pos.x + static_cast<float>(
-                                cos(baseAng + (120.0f * M_PI / 180.0f))) *
-                                esz * 0.5f,
-                  e.pos.y + static_cast<float>(
-                                sin(baseAng + (120.0f * M_PI / 180.0f))) *
-                                esz * 0.5f);
+      Vec2 eleft(
+          e.getPosition().x + static_cast<float>(cos(baseAng)) * esz * 0.5f,
+          e.getPosition().y + static_cast<float>(sin(baseAng)) * esz * 0.5f);
+      Vec2 eright(
+          e.getPosition().x +
+              static_cast<float>(cos(baseAng + (120.0f * M_PI / 180.0f))) *
+                  esz * 0.5f,
+          e.getPosition().y +
+              static_cast<float>(sin(baseAng + (120.0f * M_PI / 180.0f))) *
+                  esz * 0.5f);
       Vec2 etp = transform(etip), elp = transform(eleft),
            erp = transform(eright);
       renderer.drawTriangle(etp.x, etp.y, elp.x, elp.y, erp.x, erp.y, er, eg,
@@ -398,7 +386,7 @@ int main() {
                                    sin(baseAngle + (30.0f * M_PI / 180.0f))) *
                                    size * 0.5f);
     Vec2 tp = transform(tip), lp = transform(leftp), rp = transform(rightp);
-    float heatRatio = (float)heatCount / 20.0f;
+    float heatRatio = (float)heatCount / maxHeat;
     float pr, pg;
     if (heatRatio < 0.8f) {
       pr = heatRatio / 0.8f;
