@@ -133,12 +133,12 @@ public:
             const std::function<Vec2(Vec2)> &transform) const override;
 
 private:
-  static constexpr float SPEED = 80.0f;         // 与绿机相同
-  static constexpr float SIZE = 12.0f;          // 稍大一点
+  static constexpr float SPEED = 100.0f;
+  static constexpr float SIZE = 12.0f;
   static constexpr float TIP_ANGLE = 90.0f;     // 顶角90度
   static constexpr float COOLDOWN = 3.0f;       // 攻击冷却3秒
   static constexpr float SAFE_DISTANCE = 80.0f; // 保持距离
-  static constexpr float TURN_RATE = 0.5f;      // 转向灵敏度（越小越不灵敏）
+  static constexpr float TURN_RATE = 0.8f;      // 转向灵敏度（越小越不灵敏）
 
   float attackTimer;                    // 攻击计时器
   std::vector<Missile> *MISSILE_VECTOR; // 指向全局导弹列表的指针
