@@ -73,6 +73,7 @@ struct Spark {
   Vec2 pos;
   float life;
   float r, g, b;
+  float radius;
 };
 
 // 游戏状态
@@ -150,6 +151,8 @@ int main() {
   Player player(SCR_WIDTH / 2.0f, SCR_HEIGHT / 2.0f);
   std::vector<Bullet> bullets;
   std::vector<Spark> sparks;
+
+  Enemy::setEnemyList(&enemies);
 
   double mouseX = 0, mouseY = 0;
 
@@ -266,6 +269,7 @@ int main() {
           s.r = 1.0f;
           s.g = 1.0f - whiteness;
           s.b = 1.0f - whiteness;
+          s.radius = 2.0f;
           sparks.push_back(s);
           remove = true;
           break;
@@ -280,6 +284,7 @@ int main() {
         s.r = 1.0f;
         s.g = 0.7f;
         s.b = 0.0f;
+        s.radius = 2.0f;
         sparks.push_back(s);
         it = bullets.erase(it);
       } else
@@ -311,22 +316,26 @@ int main() {
         break;
       }
       // 检查导弹与所有敌人的碰撞（包括其他灰机）
+      bool hitEnemy = false;
       for (auto &enemyPtr : enemies) {
         if ((it->pos - enemyPtr->getPosition()).lengthSq() < 64.0f) {
           // 导弹命中敌人
           enemyPtr->takeDamage(10); // 造成10点伤害
-          // 产生火花效果
-          Spark s;
-          s.pos = it->pos;
-          s.life = 0.3f;
-          s.r = 1.0f;
-          s.g = 0.3f;
-          s.b = 0.3f;
-          sparks.push_back(s);
-          it = missiles.erase(it);
-          break;
+          if (!hitEnemy) {
+            Spark s;
+            s.pos = it->pos;
+            s.life = 0.3f;
+            s.r = 1.0f;
+            s.g = 0.5f;
+            s.b = 0.0f;
+            s.radius = 5.0f;
+            sparks.push_back(s);
+            hitEnemy = true;
+          }
         }
       }
+      if (hitEnemy)
+        missiles.erase(it);
       if (it != missiles.end()) {
         if (it->isExpired()) {
           it = missiles.erase(it);
@@ -387,8 +396,9 @@ int main() {
       float r = s.r;
       float g = s.g + s.life;
       float b = s.b + s.life;
+      float radius = s.radius * ((s.life + 1) / 1.3f);
       Vec2 p = transform(s.pos);
-      renderer.drawCircle(p.x, p.y, 2.0f, r, g, b, false);
+      renderer.drawCircle(p.x, p.y, radius, r, g, b, false);
     }
     // 敌机
     for (auto &eit : enemies) {
@@ -402,7 +412,8 @@ int main() {
         float alpha = (float)idx / (float)m.trail.size();
         Vec2 p = transform(tp);
         // 拖尾颜色：亮红到暗红
-        renderer.drawCircle(p.x, p.y, 1.5f, 1.0f, 0.3f * (1 - alpha), 0.0f);
+        renderer.drawCircle(p.x, p.y, 1.5f * (alpha + 0.5f), 1.0f,
+                            0.3f * (1 - alpha), 0.0f);
         idx++;
       }
       // 绘制导弹本体

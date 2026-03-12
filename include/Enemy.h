@@ -92,6 +92,9 @@ public:
     angle = atan2(dir.y, dir.x);
   }
   void setLife(int newLife) { life = newLife; }
+  static void setEnemyList(std::vector<std::unique_ptr<Enemy>> *list) {
+    s_enemies = list;
+  }
 
   float getColorRatio() const { return 1.0f - (float)life / maxLife; }
 
@@ -103,11 +106,16 @@ public:
   }
 
 protected:
+  Vec2 computeSeparation(float threshold, float strength = 1.0f) const;
+
   Vec2 pos;
   Vec2 vel;
   float angle;
   int life;
   int maxLife;
+
+private:
+  static std::vector<std::unique_ptr<Enemy>> *s_enemies;
 };
 
 // 普通敌人
@@ -138,8 +146,9 @@ private:
   static constexpr float TIP_ANGLE = 90.0f;     // 顶角90度
   static constexpr float COOLDOWN = 3.0f;       // 攻击冷却3秒
   static constexpr float SAFE_DISTANCE = 80.0f; // 保持距离
-  static constexpr float TURN_RATE = 0.8f;      // 转向灵敏度（越小越不灵敏）
+  static constexpr float TURN_RATE = 2.0f;      // 转向灵敏度（越小越不灵敏）
 
-  float attackTimer;                    // 攻击计时器
+  float attackTimer; // 攻击计时器
+  int missileCount;
   std::vector<Missile> *MISSILE_VECTOR; // 指向全局导弹列表的指针
 };

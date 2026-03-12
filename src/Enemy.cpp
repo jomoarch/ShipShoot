@@ -1,19 +1,49 @@
 #include "Enemy.h"
 
+std::vector<std::unique_ptr<Enemy>> *Enemy::s_enemies = nullptr;
+
 Enemy::Enemy(const Vec2 &spawnPos, int maxLife)
     : pos(spawnPos), vel(0, 0), life(maxLife), maxLife(maxLife) {}
+
+Vec2 Enemy::computeSeparation(float threshold, float strength) const {
+  Vec2 separation(0, 0);
+  if (!s_enemies)
+    return separation; // 如果敌人列表未设置，返回零向量
+  for (const auto &e : *s_enemies) {
+    if (e.get() == this)
+      continue;
+    Vec2 toOther = e->getPosition() - pos;
+    float distSq = toOther.lengthSq();
+    if (distSq < threshold * threshold && distSq > 0.001f) {
+      separation -= toOther / distSq; // 距离越近，斥力越大
+    }
+  }
+  return separation * strength;
+}
 
 // BasicEnemy
 BasicEnemy::BasicEnemy(const Vec2 &spawnPos, int maxLife)
     : Enemy(spawnPos, maxLife) {}
 
 void BasicEnemy::update(float dt, const Vec2 &playerPos) {
-  Vec2 dir = playerPos - pos;
   setAngleTowards(playerPos);
-  float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-  if (len > 0.001f) {
-    dir = dir / len;
-    pos = pos + dir * SPEED * dt;
+
+  // 计算分离力
+  Vec2 separation = computeSeparation(20.0f, 2.0f);
+
+  // 朝向玩家的单位方向
+  Vec2 dirToPlayer = (playerPos - pos);
+  float lenToPlayer = dirToPlayer.length();
+  if (lenToPlayer > 0.001f) {
+    dirToPlayer = dirToPlayer / lenToPlayer;
+  }
+
+  // 最终移动方向 = 玩家方向 + 分离力（归一化）
+  Vec2 desiredDir = dirToPlayer + separation * 0.3f;
+  float desiredLen = desiredDir.length();
+  if (desiredLen > 0.001f) {
+    desiredDir = desiredDir / desiredLen;
+    pos = pos + desiredDir * SPEED * dt;
   }
 }
 
@@ -45,7 +75,8 @@ void BasicEnemy::draw(Renderer &renderer,
 // GreyEnemy
 GreyEnemy::GreyEnemy(const Vec2 &spawnPos, int maxLife,
                      std::vector<Missile> *missiles)
-    : Enemy(spawnPos, maxLife), attackTimer(0.0f), MISSILE_VECTOR(missiles) {}
+    : Enemy(spawnPos, maxLife), attackTimer(0.0f), missileCount(0),
+      MISSILE_VECTOR(missiles) {}
 
 void GreyEnemy::update(float dt, const Vec2 &playerPos) {
   // 更新攻击计时器
@@ -108,6 +139,10 @@ void GreyEnemy::update(float dt, const Vec2 &playerPos) {
     totalForce += randomDir * SPEED * 0.3f * dt;
   }
 
+  // 添加分离力
+  Vec2 separation = computeSeparation(30.0f, 1.5f);
+  totalForce += separation;
+
   // 更新速度（带转向不灵敏）
   if (totalForce.length() > 0.001f) {
     Vec2 desiredVel = totalForce;
@@ -151,21 +186,20 @@ void GreyEnemy::update(float dt, const Vec2 &playerPos) {
     setAngleTowards(playerPos);
   }
 
-  // 攻击逻辑
-  if (attackTimer >= COOLDOWN && distToPlayer < 200.0f) {
-    attackTimer = 0.0f;
+  if (missileCount > 0) {
+    Vec2 dir(std::cos(angle), std::sin(angle));
 
-    // 发射3发导弹，间隔0.1秒
-    for (int i = 0; i < 3; i++) {
-      // 计算发射方向（略微散开）
-      float spreadAngle = angle + (i - 1) * 0.2f;
-      Vec2 dir(std::cos(spreadAngle), std::sin(spreadAngle));
-
-      Missile m(pos, playerPos, dir * (SPEED * 1.6f));
-      if (MISSILE_VECTOR) {
-        MISSILE_VECTOR->push_back(m);
-      }
+    Missile m(pos + dir * 5.0f, playerPos, dir * (SPEED * 1.6f));
+    if (MISSILE_VECTOR) {
+      MISSILE_VECTOR->push_back(m);
     }
+    missileCount--;
+  }
+
+  // 攻击逻辑
+  if (attackTimer >= COOLDOWN && distToPlayer < 240.0f) {
+    attackTimer = 0.0f;
+    missileCount = 3; // 一次发射3枚导弹
   }
 }
 
