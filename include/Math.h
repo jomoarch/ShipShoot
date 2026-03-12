@@ -10,6 +10,7 @@ struct Vec2 {
   Vec2(const Vec2 &) = default;
   ~Vec2() = default;
 
+  Vec2 operator-() const { return Vec2{-x, -y}; }
   Vec2 operator+(const Vec2 &other) const {
     return Vec2{x + other.x, y + other.y};
   }

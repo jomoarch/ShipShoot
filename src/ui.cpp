@@ -33,7 +33,28 @@ void cursor_enter_cb(GLFWwindow *w, int entered) {
                    entered ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
 }
 
-void scroll_cb(GLFWwindow *w, double xoff, double yoff) {}
+// 游戏区大小
+static float gameWidth = SCR_WIDTH;
+static float gameHeight = SCR_HEIGHT;
+static Renderer *g_renderer = nullptr;
+
+void scroll_cb(GLFWwindow *w, double xoff, double yoff) {
+  // 滚轮缩放游戏区大小
+  float scaleFactor = 1.0f + (float)yoff * 0.1f;
+  const float MIN_SIZE = 0.5f;
+  const float MAX_SIZE = 2.0f;
+  if (scaleFactor < MIN_SIZE)
+    scaleFactor = MIN_SIZE;
+  if (scaleFactor > MAX_SIZE)
+    scaleFactor = MAX_SIZE;
+  gameWidth *= scaleFactor;
+  gameHeight *= scaleFactor;
+
+  // 更新渲染器的投影矩阵
+  if (g_renderer) {
+    g_renderer->setProjection(gameWidth, gameHeight);
+  }
+}
 
 // 玩家
 struct Player {
@@ -56,10 +77,12 @@ struct Spark {
 
 // 游戏状态
 static std::vector<std::unique_ptr<Enemy>> enemies;
+static std::vector<Missile> missiles;
 static float spawnTimer = 0.0f;
+static float greySpawnTimer = 0.0f;
 static bool gameOver = false;
 // 过热计数器
-const int maxHeat = 20;
+const int maxHeat = 80;
 static int heatCount = 0;
 
 // 随机边框位置选取器
@@ -67,22 +90,22 @@ Vec2 getRandomSpawnPosition() {
   int edge = rand() % 4;
   float px, py;
   float offset = 20.0f;
-  float left = camPos.x - SCR_WIDTH / 2.0f;
-  float right = camPos.x + SCR_WIDTH / 2.0f;
-  float bottom = camPos.y - SCR_HEIGHT / 2.0f;
-  float top = camPos.y + SCR_HEIGHT / 2.0f;
+  float left = camPos.x - gameWidth / 2.0f;
+  float right = camPos.x + gameWidth / 2.0f;
+  float bottom = camPos.y - gameHeight / 2.0f;
+  float top = camPos.y + gameHeight / 2.0f;
   if (edge == 0) {
     px = left - offset;
-    py = bottom + (float)(rand() % SCR_HEIGHT);
+    py = bottom + (float)(rand() % static_cast<int>(gameHeight));
   } else if (edge == 1) {
     px = right + offset;
-    py = bottom + (float)(rand() % SCR_HEIGHT);
+    py = bottom + (float)(rand() % static_cast<int>(gameHeight));
   } else if (edge == 2) {
     py = bottom - offset;
-    px = left + (float)(rand() % SCR_WIDTH);
+    px = left + (float)(rand() % static_cast<int>(gameWidth));
   } else {
     py = top + offset;
-    px = left + (float)(rand() % SCR_WIDTH);
+    px = left + (float)(rand() % static_cast<int>(gameWidth));
   }
   return Vec2{px, py};
 }
@@ -116,6 +139,7 @@ int main() {
   }
 
   Renderer renderer;
+  g_renderer = &renderer;
   if (!renderer.init()) {
     std::cerr << "renderer init failed" << std::endl;
     return -1;
@@ -151,10 +175,10 @@ int main() {
     glfwGetCursorPos(window, &mouseX, &mouseY);
     int winW, winH;
     glfwGetWindowSize(window, &winW, &winH);
-    float lx = (float)mouseX * ((float)SCR_WIDTH / winW);
-    float ly = (float)mouseY * ((float)SCR_HEIGHT / winH);
-    float sx = lx - SCR_WIDTH / 2.0f;
-    float sy = (SCR_HEIGHT - ly) - SCR_HEIGHT / 2.0f;
+    float lx = (float)mouseX * (gameWidth / winW);
+    float ly = (float)mouseY * (gameHeight / winH);
+    float sx = lx - gameWidth / 2.0f;
+    float sy = (gameHeight - ly) - gameHeight / 2.0f;
     float ca = cos(-viewAngle), sa = sin(-viewAngle);
     float wx = sx * ca - sy * sa;
     float wy = sx * sa + sy * ca;
@@ -243,15 +267,6 @@ int main() {
           s.g = 1.0f - whiteness;
           s.b = 1.0f - whiteness;
           sparks.push_back(s);
-          if (e->isDead()) {
-            Spark se;
-            se.pos = e->getPosition();
-            se.life = 0.5f;
-            se.r = 1;
-            se.g = 1;
-            se.b = 1;
-            sparks.push_back(se);
-          }
           remove = true;
           break;
         }
@@ -284,6 +299,43 @@ int main() {
     for (auto &eit : enemies) {
       eit->update(dt, player.pos);
     }
+
+    // 更新导弹
+    for (auto it = missiles.begin(); it != missiles.end();) {
+      it->update(dt, player.pos);
+      if (it->age < 0.1f)
+        continue;
+      // 检查导弹与玩家的碰撞
+      if ((it->pos - player.pos).lengthSq() < 64.0f) { // 半径8
+        gameOver = true;
+        break;
+      }
+      // 检查导弹与所有敌人的碰撞（包括其他灰机）
+      for (auto &enemyPtr : enemies) {
+        if ((it->pos - enemyPtr->getPosition()).lengthSq() < 64.0f) {
+          // 导弹命中敌人
+          enemyPtr->takeDamage(10); // 造成10点伤害
+          // 产生火花效果
+          Spark s;
+          s.pos = it->pos;
+          s.life = 0.3f;
+          s.r = 1.0f;
+          s.g = 0.3f;
+          s.b = 0.3f;
+          sparks.push_back(s);
+          it = missiles.erase(it);
+          break;
+        }
+      }
+      if (it != missiles.end()) {
+        if (it->isExpired()) {
+          it = missiles.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+
     for (auto &eit : enemies) {
       const Vec2 &ep = eit->getPosition();
       if ((ep - player.pos).lengthSq() < 100.0f) {
@@ -301,6 +353,13 @@ int main() {
       enemies.push_back(
           std::make_unique<BasicEnemy>(getRandomSpawnPosition(), 20));
     }
+    // 刷新灰色敌人
+    greySpawnTimer += dt;
+    if (greySpawnTimer >= 10.0f) {
+      greySpawnTimer = 0.0f;
+      enemies.push_back(
+          std::make_unique<GreyEnemy>(getRandomSpawnPosition(), 50, &missiles));
+    }
     Enemy::removeDeadEnemies(enemies);
 
     // 渲染和摄像机控制
@@ -314,7 +373,7 @@ int main() {
       camPos += camVel * dt;
     }
     auto transform = [&](Vec2 p) -> Vec2 {
-      float cx = SCR_WIDTH / 2.0f, cy = SCR_HEIGHT / 2.0f;
+      float cx = gameWidth / 2.0f, cy = gameHeight / 2.0f;
       float x = p.x - camPos.x;
       float y = p.y - camPos.y;
       float ca = cos(viewAngle), sa = sin(viewAngle);
@@ -325,40 +384,30 @@ int main() {
     // 下面是绘图逻辑，没有问题，不需要看
     // 圆形火花
     for (auto &s : sparks) {
-      float t = s.life / 0.3f;
       float r = s.r;
-      float g = s.g;
-      float b = s.b;
+      float g = s.g + s.life;
+      float b = s.b + s.life;
       Vec2 p = transform(s.pos);
       renderer.drawCircle(p.x, p.y, 2.0f, r, g, b, false);
     }
-    // 顶角为120度的红色敌机
+    // 敌机
     for (auto &eit : enemies) {
-      Enemy &e = *eit;
-      float whiteness = e.getColorRatio();
-      float er = 1.0f;
-      float eg = whiteness;
-      float eb = whiteness;
-      float esz = 10.0f;
-      float ang = atan2(player.pos.y - e.getPosition().y,
-                        player.pos.x - e.getPosition().x);
-      Vec2 etip(e.getPosition().x + static_cast<float>(cos(ang)) * esz,
-                e.getPosition().y + static_cast<float>(sin(ang)) * esz);
-      float baseAng = ang + M_PI - (120.0f * M_PI / 180.0f) / 2.0f;
-      Vec2 eleft(
-          e.getPosition().x + static_cast<float>(cos(baseAng)) * esz * 0.5f,
-          e.getPosition().y + static_cast<float>(sin(baseAng)) * esz * 0.5f);
-      Vec2 eright(
-          e.getPosition().x +
-              static_cast<float>(cos(baseAng + (120.0f * M_PI / 180.0f))) *
-                  esz * 0.5f,
-          e.getPosition().y +
-              static_cast<float>(sin(baseAng + (120.0f * M_PI / 180.0f))) *
-                  esz * 0.5f);
-      Vec2 etp = transform(etip), elp = transform(eleft),
-           erp = transform(eright);
-      renderer.drawTriangle(etp.x, etp.y, elp.x, elp.y, erp.x, erp.y, er, eg,
-                            eb);
+      eit->draw(renderer, transform);
+    }
+    // 绘制导弹（亮红色，带拖尾）
+    for (auto &m : missiles) {
+      // 绘制拖尾
+      int idx = 0;
+      for (auto &tp : m.trail) {
+        float alpha = (float)idx / (float)m.trail.size();
+        Vec2 p = transform(tp);
+        // 拖尾颜色：亮红到暗红
+        renderer.drawCircle(p.x, p.y, 1.5f, 1.0f, 0.3f * (1 - alpha), 0.0f);
+        idx++;
+      }
+      // 绘制导弹本体
+      Vec2 p = transform(m.pos);
+      renderer.drawCircle(p.x, p.y, 2.0f, 1.0f, 0.5f, 0.5f, false);
     }
     // 绿机子弹
     for (auto &b : bullets) {
